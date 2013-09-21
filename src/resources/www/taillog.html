@@ -1,0 +1,187 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN" "http://www.w3.org/TR/html4/strict.dtd">
+<html>
+<head>
+<title>TailLog</title>
+<meta name="viewport" content="initial-scale=1, width=650"/>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+<script type="text/javascript" src="ba31.js"></script>
+<script type="text/javascript">
+
+var g_uiMinLineNumber = -1;
+
+//----------------------------------------------------------------------------------------------
+//----------------------------------------------------------------------------------------------
+//----------------------------------------------------------------------------------------------
+
+function TailLog (sBaseUrl)
+{
+	console.log("TailLog.construct");
+	RegisterObject(this);
+	this.m_oObj = window;
+	this.m_aValues = [];
+	this.m_bValuesLoaded = false;
+	this.m_bServerOffline = false;
+	this.m_sBaseUrl = sBaseUrl;
+	
+	this.m_bLog = false;
+	
+	this.m_uiLogUpdateIndex = -1;
+	this.m_aLogEntries = [];
+	
+	this.m_uiTimeoutUpdate = 20000;
+}
+
+TailLog.prototype.OnReady = function OnReady (Request, sResult)
+{
+	console.log("BA30.OnReady jsonlist:" + (Request.m_bInform == true));
+	if (this.m_bServerOffline)
+	{
+	  document.location.reload(true);
+	  return;
+	}
+	
+   try {
+     var aResultSet = JSON.parse(sResult);
+     var aResults = aResultSet["values"];
+     for ( var uiListIndex = 0; uiListIndex < aResults.length; uiListIndex++)
+     {
+       var oLogEntry = aResults[uiListIndex];
+       if (oLogEntry.linenumber > this.m_uiLogUpdateIndex)
+       {
+         this.m_uiLogUpdateIndex = oLogEntry.linenumber;
+         g_uiLogUpdateIndex = oLogEntry.linenumber;
+       }
+       this.m_aLogEntries.push(oLogEntry);
+     }
+     
+     var Div = document.getElementById("log");
+     if (Div)
+     {
+       this.m_aLogEntries.sort(function(a,b){
+         if (a.linenumber > b.linenumber)
+         {
+           return -1;
+         }
+         if (a.linenumber < b.linenumber)
+         {
+           return 1;
+         }
+         return 0;
+       });
+ 
+       Div.innerHTML = "";
+       
+       var table = document.createElement("table");
+       Div.appendChild(table);
+       
+       for(var i = 0; i < this.m_aLogEntries.length; i++)
+       {
+         var Entry = this.m_aLogEntries[i];
+         if (Entry.linenumber <= g_uiMinLineNumber)
+       	 {
+       	   continue;
+       	 }
+         var tr = document.createElement("tr");
+         table.appendChild(tr);
+         var t = new Date();
+         //t.setTime(Entry.time);
+         
+         var sWhoisHost = "";
+         var aSplit = Entry.host.split(".");
+         if (aSplit.length > 1)
+       	 {
+	         var sDomain = aSplit[aSplit.length - 2] + "." + aSplit[aSplit.length - 1];
+	         sWhoisHost = "<a target='_blank' href='/servlet/Whois?ip=" + sDomain + "'>W</a>";
+       	 }
+         var sWhoisIp = "&nbsp;<a target='_blank' href='/servlet/Whois?ip=" + Entry.ip + "'>W</a>" + 
+         		"&nbsp;<a target='_blank' href='http://www.utrace.de/?query=" + Entry.ip + "'>U</a>";
+         
+         tr.innerHTML = "<td style='white-space:nowrap'>" + Entry.linenumber + "</td>" + 
+         	"<td style='white-space:nowrap'>" + Entry.date + "</td>" + 
+         	"<td style='white-space:nowrap'>" + Entry.host + "</td>" + 
+         	"<td style='white-space:nowrap'>" + sWhoisHost + "</td>" + 
+         	"<td style='white-space:nowrap'>&nbsp;</td>" + 
+         	"<td style='white-space:nowrap'>" + Entry.ip + "</td>" + 
+         	"<td style='white-space:nowrap'>" + sWhoisIp + "</td>" + 
+         	"<td style='white-space:nowrap'>&nbsp;</td>" + 
+         	"<td style='white-space:nowrap'>" + Entry.query + "</td>" + 
+         	"<td style='white-space:nowrap'>" + Entry.cmd + "</td>" + 
+         	"<td style='white-space:nowrap'>" + Entry.referrer + "</td>" + 
+         	"<td style='white-space:nowrap'>" + Entry.ua + "</td>" + 
+         	"<td style='white-space:nowrap'>" + Entry.result + "</td>" + 
+         	"<td style='white-space:nowrap'>" + Entry.size + "</td>";
+         if (i>1000)
+         {
+           break;
+         }
+       }
+     }
+   }
+   catch(e)
+   {
+     console.log(e);
+   }
+   DoTimeout (this, "LogUpdate", 1000);
+   return;
+};
+
+TailLog.prototype.OnFailed = function OnFailed (Request, sResult)
+{
+  console.log("BA30.OnFailed jsonlist");
+
+  if (!this.m_bServerOffline)
+  {
+    this.m_bServerOffline = true;
+  
+    var Div = document.createElement("div");
+    Div.style.backgroundColor = "#cc0000";
+    Div.style.position = "absolute";
+    Div.style.left = "0px";
+    Div.style.top = "0px";
+    Div.style.bottom = "0px";
+    Div.style.right = "0px";
+    Div.style.opacity = "0.50";
+    Div.style.textAlign = "center";
+    Div.style.fontSize = "128pt";
+    Div.innerHTML = "<br>OFFLINE";
+    
+    document.body.appendChild(Div);
+  }
+  
+  DoTimeout (this, "LogUpdate", 1000);
+};
+
+TailLog.prototype.LogUpdate = function LogUpdate ()
+{
+  console.log("TailLog.LogUpdate");
+  if (!this.m_LogUpdateRequest)
+  {
+    this.m_LogUpdateRequest = new ServerConnection_XHR();
+    this.m_LogUpdateRequest.m_Target = this;
+    this.m_LogUpdateRequest.m_bAsync = true;
+    this.m_LogUpdateRequest.m_bLogUpdate = true;
+  }
+  this.m_LogUpdateRequest.m_sUrl = this.m_sBaseUrl + "TailLog?MyLineNumber=" + this.m_uiLogUpdateIndex;
+  this.m_LogUpdateRequest.Request();
+};
+
+function Init ()
+{
+	var t = new TailLog("/servlet/");
+	t.LogUpdate();
+}
+
+window.addEventListener("load", Init);
+
+</script>
+</head>
+
+<body style="font-family:helvetica;font-size:12px;">
+
+<input type="button" onclick="g_uiMinLineNumber = g_uiLogUpdateIndex;" value="clear">
+<div style="position:absolute;right:0px;top:40px;bottom:0px;left:0px;overflow:scroll" id="log">
+</div>
+
+</body>
+</html>
